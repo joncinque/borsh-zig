@@ -36,7 +36,7 @@ pub fn Option(comptime T: type) type {
 pub fn sizeOf(data: anytype) usize {
     var stream = std.io.countingWriter(std.io.null_writer);
     borsh.write(stream.writer(), data) catch unreachable;
-    return @as(usize, @intCast(stream.bytes_written));
+    return @intCast(stream.bytes_written);
 }
 
 pub fn readFromSlice(gpa: std.mem.Allocator, comptime T: type, slice: []const u8) !T {
