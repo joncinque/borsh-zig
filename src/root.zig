@@ -141,7 +141,7 @@ pub fn read(gpa: std.mem.Allocator, comptime T: type, reader: anytype) !T {
             return data;
         },
         .ComptimeInt => return borsh.read(gpa, u64, reader),
-        .Int => return reader.readIntLittle(T),
+        .Int => return reader.readInt(T, .little),
         else => {},
     }
 
@@ -259,7 +259,7 @@ pub fn write(writer: anytype, data: anytype) !void {
             }
             return borsh.write(writer, @as(u64, data));
         },
-        .Int => return writer.writeIntLittle(T, data),
+        .Int => return writer.writeInt(T, data, .little),
         else => {},
     }
 

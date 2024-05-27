@@ -1,26 +1,25 @@
 const std = @import("std");
 
-pub fn build(b: *std.build.Builder) !void {
+pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const module = b.createModule(.{
-        .source_file = .{ .path = "borsh.zig" },
-    });
-
-    try b.modules.put(b.dupe("borsh"), module);
-
     const lib = b.addStaticLibrary(.{
         .name = "borsh",
-        .root_source_file = .{ .path = "borsh.zig" },
+        .root_source_file = .{ .path = "src/root.zig" },
         .target = target,
         .optimize = optimize,
+    });
+
+    _ = b.addModule("borsh", .{
+        .root_source_file = .{ .path = "src/root.zig" },
+        .imports = &.{},
     });
 
     b.installArtifact(lib);
 
     const tests = b.addTest(.{
-        .root_source_file = .{ .path = "borsh.zig" },
+        .root_source_file = .{ .path = "src/root.zig" },
         .target = target,
         .optimize = optimize,
     });
