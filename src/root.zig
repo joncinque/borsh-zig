@@ -58,17 +58,17 @@ pub inline fn writeAlloc(gpa: std.mem.Allocator, data: anytype) ![]u8 {
 
 pub fn read(gpa: std.mem.Allocator, comptime T: type, reader: anytype) !T {
     switch (@typeInfo(T)) {
-        .Void => return {},
-        .Bool => return switch (try reader.readByte()) {
+        .void => return {},
+        .bool => return switch (try reader.readByte()) {
             0 => false,
             1 => true,
             else => error.BadBoolean,
         },
-        .Enum => |info| {
+        .@"enum" => |info| {
             const tag = try borsh.read(gpa, u8, reader);
             return std.meta.intToEnum(T, @as(info.tag_type, @intCast(tag)));
         },
-        .Union => |info| {
+        .@"union" => |info| {
             const tag_type = info.tag_type orelse @compileError("Only tagged unions may be read.");
             const raw_tag = try borsh.read(gpa, tag_type, reader);
 
@@ -83,7 +83,7 @@ pub fn read(gpa: std.mem.Allocator, comptime T: type, reader: anytype) !T {
 
             return error.UnknownUnionTag;
         },
-        .Struct => |info| {
+        .@"struct" => |info| {
             var data: T = undefined;
             inline for (info.fields) |field| {
                 if (!field.is_comptime) {
@@ -92,36 +92,36 @@ pub fn read(gpa: std.mem.Allocator, comptime T: type, reader: anytype) !T {
             }
             return data;
         },
-        .Optional => |info| {
+        .optional => |info| {
             return switch (try reader.readByte()) {
                 0 => null,
                 1 => try borsh.read(gpa, info.child, reader),
                 else => error.BadOptionalBoolean,
             };
         },
-        .Array => |info| {
+        .array => |info| {
             var data: T = undefined;
             for (&data) |*element| {
                 element.* = try borsh.read(gpa, info.child, reader);
             }
             return data;
         },
-        .Vector => |info| {
+        .vector => |info| {
             var data: T = undefined;
             for (&data) |*element| {
                 element.* = try borsh.read(gpa, info.child, reader);
             }
             return data;
         },
-        .Pointer => |info| {
+        .pointer => |info| {
             switch (info.size) {
-                .One => {
+                .one => {
                     const data = try gpa.create(info.child);
                     errdefer gpa.destroy(data);
                     data.* = try borsh.read(gpa, info.child, reader);
                     return data;
                 },
-                .Slice => {
+                .slice => {
                     const entries = try gpa.alloc(info.child, try borsh.read(gpa, u32, reader));
                     errdefer gpa.free(entries);
                     for (entries) |*entry| {
@@ -132,16 +132,16 @@ pub fn read(gpa: std.mem.Allocator, comptime T: type, reader: anytype) !T {
                 else => {},
             }
         },
-        .ComptimeFloat => return borsh.read(gpa, f64, reader),
-        .Float => |info| {
+        .comptime_float => return borsh.read(gpa, f64, reader),
+        .float => |info| {
             const data = @as(T, @bitCast(try reader.readBytesNoEof((info.bits + 7) / 8)));
             if (std.math.isNan(data)) {
                 return error.FloatIsNan;
             }
             return data;
         },
-        .ComptimeInt => return borsh.read(gpa, u64, reader),
-        .Int => return reader.readInt(T, .little),
+        .comptime_int => return borsh.read(gpa, u64, reader),
+        .int => return reader.readInt(T, .little),
         else => {},
     }
 
@@ -151,34 +151,34 @@ pub fn read(gpa: std.mem.Allocator, comptime T: type, reader: anytype) !T {
 pub fn readFree(gpa: std.mem.Allocator, value: anytype) void {
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
-        .Array, .Vector => {
+        .array, .vector => {
             for (value) |element| {
                 borsh.readFree(gpa, element);
             }
         },
-        .Struct => |info| {
+        .@"struct" => |info| {
             inline for (info.fields) |field| {
                 if (!field.is_comptime) {
                     borsh.readFree(gpa, @field(value, field.name));
                 }
             }
         },
-        .Optional => {
+        .optional => {
             if (value) |v| {
                 borsh.readFree(gpa, v);
             }
         },
-        .Union => |info| {
+        .@"union" => |info| {
             inline for (info.fields) |field| {
                 if (value == @field(T, field.name)) {
                     return borsh.readFree(gpa, @field(value, field.name));
                 }
             }
         },
-        .Pointer => |info| {
+        .pointer => |info| {
             switch (info.size) {
-                .One => gpa.destroy(value),
-                .Slice => {
+                .one => gpa.destroy(value),
+                .slice => {
                     for (value) |item| {
                         borsh.readFree(gpa, item);
                     }
@@ -194,10 +194,10 @@ pub fn readFree(gpa: std.mem.Allocator, value: anytype) void {
 pub fn write(writer: anytype, data: anytype) !void {
     const T = @TypeOf(data);
     switch (@typeInfo(T)) {
-        .Type, .Void, .NoReturn, .Undefined, .Null, .Fn, .Opaque, .Frame, .AnyFrame => return,
-        .Bool => return writer.writeByte(@intFromBool(data)),
-        .Enum => return borsh.write(writer, std.math.cast(u8, @intFromEnum(data)) orelse return error.EnumTooLarge),
-        .Union => |info| {
+        .type, .void, .noreturn, .undefined, .null, .@"fn", .@"opaque", .frame, .@"anyframe" => return,
+        .bool => return writer.writeByte(@intFromBool(data)),
+        .@"enum" => return borsh.write(writer, std.math.cast(u8, @intFromEnum(data)) orelse return error.EnumTooLarge),
+        .@"union" => |info| {
             try borsh.write(writer, std.math.cast(u8, @intFromEnum(data)) orelse return error.EnumTooLarge);
             inline for (info.fields) |field| {
                 if (data == @field(T, field.name)) {
@@ -206,7 +206,7 @@ pub fn write(writer: anytype, data: anytype) !void {
             }
             return;
         },
-        .Struct => |info| {
+        .@"struct" => |info| {
             var maybe_err: anyerror!void = {};
             inline for (info.fields) |field| {
                 if (!field.is_comptime) {
@@ -217,7 +217,7 @@ pub fn write(writer: anytype, data: anytype) !void {
             }
             return maybe_err;
         },
-        .Optional => {
+        .optional => {
             if (data) |value| {
                 try writer.writeByte(1);
                 try borsh.write(writer, value);
@@ -226,17 +226,17 @@ pub fn write(writer: anytype, data: anytype) !void {
             }
             return;
         },
-        .Array, .Vector => {
+        .array, .vector => {
             for (data) |element| {
                 try borsh.write(writer, element);
             }
             return;
         },
-        .Pointer => |info| {
+        .pointer => |info| {
             switch (info.size) {
-                .One => return borsh.write(writer, data.*),
-                .Many => return borsh.write(writer, std.mem.span(data)),
-                .Slice => {
+                .one => return borsh.write(writer, data.*),
+                .many => return borsh.write(writer, std.mem.span(data)),
+                .slice => {
                     try borsh.write(writer, std.math.cast(u32, data.len) orelse return error.DataTooLarge);
                     for (data) |element| {
                         try borsh.write(writer, element);
@@ -246,20 +246,20 @@ pub fn write(writer: anytype, data: anytype) !void {
                 else => {},
             }
         },
-        .ComptimeFloat => return borsh.write(writer, @as(f64, data)),
-        .Float => {
+        .comptime_float => return borsh.write(writer, @as(f64, data)),
+        .float => {
             if (std.math.isNan(data)) {
                 return error.FloatsMayNotBeNan;
             }
             return writer.writeAll(std.mem.asBytes(&data));
         },
-        .ComptimeInt => {
+        .comptime_int => {
             if (data < 0) {
                 @compileError("Signed comptime integers can not be serialized.");
             }
             return borsh.write(writer, @as(u64, data));
         },
-        .Int => return writer.writeInt(T, data, .little),
+        .int => return writer.writeInt(T, data, .little),
         else => {},
     }
 
