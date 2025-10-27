@@ -271,7 +271,7 @@ test {
 }
 
 test "borsh: serialize and deserialize" {
-    var buffer = std.ArrayList(u8).init(testing.allocator);
+    var buffer = std.array_list.Managed(u8).init(testing.allocator);
     defer buffer.deinit();
 
     inline for (.{
