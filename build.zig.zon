@@ -1,8 +1,8 @@
 .{
     .fingerprint = 0x569b4b04cb4b199b,
     .name = .borsh,
-    .version = "0.14.0",
-    .minimum_zig_version = "0.14.0",
+    .version = "0.15.0",
+    .minimum_zig_version = "0.15.0",
     .dependencies = .{},
     .paths = .{
         "build.zig",
