@@ -34,26 +34,29 @@ pub fn Option(comptime T: type) type {
 }
 
 pub fn sizeOf(data: anytype) usize {
-    var stream = std.io.countingWriter(std.io.null_writer);
-    borsh.write(stream.writer(), data) catch unreachable;
-    return @intCast(stream.bytes_written);
+    var trash_buffer: [64]u8 = undefined;
+    var stream: std.Io.Writer.Discarding = .init(&trash_buffer);
+    const writer = &stream.writer;
+    borsh.write(writer, data) catch unreachable;
+    return @intCast(stream.fullCount());
 }
 
 pub fn readFromSlice(gpa: std.mem.Allocator, comptime T: type, slice: []const u8) !T {
-    var stream = std.io.fixedBufferStream(slice);
-    return borsh.read(gpa, T, stream.reader());
+    var reader: std.Io.Reader = .fixed(slice);
+    return borsh.read(gpa, T, &reader);
 }
 
-pub fn writeToSlice(slice: []u8, data: anytype) ![]u8 {
-    var stream = std.io.fixedBufferStream(slice);
-    try borsh.write(stream.writer(), data);
-    return stream.getWritten();
+pub fn writeToSlice(slice: []u8, data: anytype) !void {
+    var writer: std.Io.Writer = .fixed(slice);
+    try borsh.write(&writer, data);
 }
 
-pub inline fn writeAlloc(gpa: std.mem.Allocator, data: anytype) ![]u8 {
-    const buffer = try gpa.alloc(u8, borsh.sizeOf(data));
-    errdefer gpa.free(buffer);
-    return try borsh.writeToSlice(buffer, data);
+pub inline fn writeAlloc(gpa: std.mem.Allocator, data: anytype) !std.array_list.Managed(u8) {
+    var buffer = try std.array_list.Managed(u8).initCapacity(gpa, borsh.sizeOf(data));
+    errdefer buffer.deinit();
+    buffer.expandToCapacity();
+    try borsh.writeToSlice(buffer.items, data);
+    return buffer;
 }
 
 pub fn read(gpa: std.mem.Allocator, comptime T: type, reader: anytype) !T {
@@ -134,14 +137,15 @@ pub fn read(gpa: std.mem.Allocator, comptime T: type, reader: anytype) !T {
         },
         .comptime_float => return borsh.read(gpa, f64, reader),
         .float => |info| {
-            const data = @as(T, @bitCast(try reader.readBytesNoEof((info.bits + 7) / 8)));
+            const IntType = @Int(.unsigned, info.bits);
+            const data = @as(T, @bitCast(try reader.takeInt(IntType, .little)));
             if (std.math.isNan(data)) {
                 return error.FloatIsNan;
             }
             return data;
         },
         .comptime_int => return borsh.read(gpa, u64, reader),
-        .int => return reader.readInt(T, .little),
+        .int => return reader.takeInt(T, .little),
         else => {},
     }
 
@@ -271,9 +275,6 @@ test {
 }
 
 test "borsh: serialize and deserialize" {
-    var buffer = std.array_list.Managed(u8).init(testing.allocator);
-    defer buffer.deinit();
-
     inline for (.{
         @as(i8, std.math.minInt(i8)),
         @as(i16, std.math.minInt(i16)),
@@ -295,27 +296,25 @@ test "borsh: serialize and deserialize" {
 
         [_]u8{ 0, 1, 2, 3 },
     }) |expected| {
-        try borsh.write(buffer.writer(), expected);
-        var stream = std.io.fixedBufferStream(buffer.items);
-
-        const actual = try borsh.read(testing.allocator, @TypeOf(expected), stream.reader());
+        const buffer = try borsh.writeAlloc(testing.allocator, expected);
+        defer buffer.deinit();
+        var reader: std.Io.Reader = .fixed(buffer.items);
+        const actual = try borsh.read(testing.allocator, @TypeOf(expected), &reader);
         defer borsh.readFree(testing.allocator, actual);
 
         try testing.expectEqual(expected, actual);
-        buffer.clearRetainingCapacity();
     }
 
     inline for (.{
         "hello world",
         @as([]const u8, "hello world"),
     }) |expected| {
-        try borsh.write(buffer.writer(), expected);
-        var stream = std.io.fixedBufferStream(buffer.items);
-
-        const actual = try borsh.read(testing.allocator, @TypeOf(expected), stream.reader());
+        const buffer = try borsh.writeAlloc(testing.allocator, expected);
+        defer buffer.deinit();
+        var reader: std.Io.Reader = .fixed(buffer.items);
+        const actual = try borsh.read(testing.allocator, @TypeOf(expected), &reader);
         defer borsh.readFree(testing.allocator, actual);
 
         try testing.expectEqualSlices(std.meta.Elem(@TypeOf(expected)), expected, actual);
-        buffer.clearRetainingCapacity();
     }
 }
